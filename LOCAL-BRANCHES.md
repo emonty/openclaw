@@ -20,6 +20,11 @@ for changes we're developing/submitting upstream.
   client ID fix, canvas URL normalization, token/password UI.
   Upstream PR: https://github.com/openclaw/openclaw/pull/11205
 
+- **`fix/matrix-block-streaming`** — Matrix block streaming support.
+  Adds `blockStreaming` config to Matrix channel so messages are sent
+  as they arrive instead of batching until the agent finishes.
+  PR pending upstream.
+
 ## Workflow
 
 1. Develop on feature branches (one per upstream PR)
@@ -39,6 +44,7 @@ git pull origin main            # get latest upstream
 git merge local-only            # local-only config/notes
 git merge feat/matrix-multi-account
 git merge fix/android-tailscale-gateway
+git merge fix/matrix-block-streaming
 ```
 
 This applies after:
@@ -58,6 +64,7 @@ git pull origin main
 git merge local-only
 git merge feat/matrix-multi-account
 git merge fix/android-tailscale-gateway
+git merge fix/matrix-block-streaming
 ```
 
 ## Notes
