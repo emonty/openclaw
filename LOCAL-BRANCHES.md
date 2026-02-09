@@ -53,6 +53,57 @@ This applies after:
 - Adding notes/config to `local-only`
 - Pulling new upstream commits
 
+## Deploying
+
+The server is `openclaw@openclaw-gateway`. The gateway runs from
+`~/openclaw-src` via a user systemd service.
+
+### Server details
+
+- **Service:** `openclaw-gateway.service` (user systemd, `~/.config/systemd/user/`)
+- **ExecStart:** `node /home/openclaw/openclaw-src/openclaw.mjs gateway`
+- **Source dir:** `~/openclaw-src` (rsync'd, not a git repo)
+- **Node:** v22 (system install)
+- **Deps:** pnpm (frozen lockfile)
+- **Tailscale serve:** auto-enabled by gateway on port 18789
+
+### Deploy steps
+
+```bash
+# 1. Build locally on main
+git checkout main
+pnpm build
+
+# 2. Rsync to server (exclude git, node_modules, mobile apps)
+rsync -avz --delete \
+  --exclude='.git' \
+  --exclude='node_modules' \
+  --exclude='apps/android' \
+  --exclude='apps/ios' \
+  --exclude='apps/macos' \
+  --exclude='.github' \
+  --exclude='LOCAL-BRANCHES.md' \
+  --exclude='NOTES-*.md' \
+  ./ openclaw@openclaw-gateway:~/openclaw-src/
+
+# 3. Install deps on server
+ssh openclaw@openclaw-gateway "cd ~/openclaw-src && pnpm install --frozen-lockfile"
+
+# 4. Restart the gateway
+ssh openclaw@openclaw-gateway "systemctl --user restart openclaw-gateway.service"
+
+# 5. Verify
+ssh openclaw@openclaw-gateway "systemctl --user status openclaw-gateway.service"
+ssh openclaw@openclaw-gateway "journalctl --user -u openclaw-gateway.service --since '30 seconds ago' --no-pager"
+```
+
+### Quick deploy (one-liner after build)
+
+```bash
+rsync -avz --delete --exclude='.git' --exclude='node_modules' --exclude='apps/android' --exclude='apps/ios' --exclude='apps/macos' --exclude='.github' --exclude='LOCAL-BRANCHES.md' --exclude='NOTES-*.md' ./ openclaw@openclaw-gateway:~/openclaw-src/ && \
+ssh openclaw@openclaw-gateway "cd ~/openclaw-src && pnpm install --frozen-lockfile && systemctl --user restart openclaw-gateway.service"
+```
+
 ## Updating (full refresh)
 
 ```bash
