@@ -28,6 +28,7 @@ function bindingMatchIdentityKey(match: AgentRouteBinding["match"]) {
     match.channel,
     match.peer?.kind ?? "",
     match.peer?.id ?? "",
+    match.roomId ?? "",
     match.guildId ?? "",
     match.teamId ?? "",
     roles.join(","),
@@ -62,6 +63,9 @@ export function describeBinding(binding: AgentRouteBinding) {
   }
   if (match.peer) {
     parts.push(`peer=${match.peer.kind}:${match.peer.id}`);
+  }
+  if (match.roomId) {
+    parts.push(`room=${match.roomId}`);
   }
   if (match.guildId) {
     parts.push(`guild=${match.guildId}`);
@@ -289,6 +293,7 @@ export function parseBindingSpecs(params: {
   agentId: string;
   specs?: string[];
   config: OpenClawConfig;
+  roomId?: string;
 }): { bindings: AgentRouteBinding[]; errors: string[] } {
   const bindings: AgentRouteBinding[] = [];
   const errors: string[] = [];
@@ -319,6 +324,9 @@ export function parseBindingSpecs(params: {
     const match: AgentRouteBinding["match"] = { channel };
     if (accountId) {
       match.accountId = accountId;
+    }
+    if (params.roomId) {
+      match.roomId = params.roomId;
     }
     bindings.push({ type: "route", agentId, match });
   }

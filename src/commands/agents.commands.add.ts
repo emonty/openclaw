@@ -35,6 +35,7 @@ type AgentsAddOptions = {
   model?: string;
   agentDir?: string;
   bind?: string[];
+  room?: string;
   nonInteractive?: boolean;
   json?: boolean;
 };
@@ -116,6 +117,7 @@ export async function agentsAddCommand(
       agentId,
       specs: opts.bind,
       config: nextConfig,
+      roomId: opts.room?.trim(),
     });
     if (bindingParse.errors.length > 0) {
       runtime.error(bindingParse.errors.join("\n"));
