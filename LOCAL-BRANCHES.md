@@ -11,19 +11,10 @@ for changes we're developing/submitting upstream.
 - **`local-only`** — local-only config and notes (AGENTS.md tweaks,
   LOCAL-BRANCHES.md, etc.) that should never be pushed to upstream.
 
-- **`feat/matrix-multi-account`** — Matrix multi-account support.
-  Adds `channels.matrix.accounts` config for running multiple Matrix bot
-  accounts from a single gateway. PR pending upstream.
-
 - **`fix/android-tailscale-gateway`** — Android app fixes for Tailscale serve.
   BouncyCastle Ed25519 fallback, auto-TLS for `.ts.net`, operator session
   client ID fix, canvas URL normalization, token/password UI.
   Upstream PR: https://github.com/openclaw/openclaw/pull/11205
-
-- **`fix/matrix-block-streaming`** — Matrix block streaming support.
-  Adds `blockStreaming` config to Matrix channel so messages are sent
-  as they arrive instead of batching until the agent finishes.
-  PR pending upstream.
 
 ## Workflow
 
@@ -42,9 +33,7 @@ for changes we're developing/submitting upstream.
 git checkout main
 git pull origin main            # get latest upstream
 git merge local-only            # local-only config/notes
-git merge feat/matrix-multi-account
 git merge fix/android-tailscale-gateway
-git merge fix/matrix-block-streaming
 ```
 
 This applies after:
@@ -52,6 +41,12 @@ This applies after:
 - Pushing review-feedback fixes to a PR branch
 - Adding notes/config to `local-only`
 - Pulling new upstream commits
+
+### Responding to code reviews
+
+PRs are reviewed by other agents. Watch PRs for comments from Greptile and iterate with them until they are happy.
+When pushing fixes that address @greptileai review comments, mention `@greptileai` in the PR reply so it knows to re-review. Ask it to update its summary.
+Don't delete the Greptile summary from the PR description.
 
 ## Deploying
 
