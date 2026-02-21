@@ -29,6 +29,8 @@ export type AgentBindingMatch = {
   channel: string;
   accountId?: string;
   peer?: { kind: ChatType; id: string };
+  /** Room/channel ID — matches regardless of DM detection (e.g. Matrix room ID). */
+  roomId?: string;
   guildId?: string;
   teamId?: string;
   /** Discord role IDs used for role-based routing. */
