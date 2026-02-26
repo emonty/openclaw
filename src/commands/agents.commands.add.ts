@@ -7,7 +7,7 @@ import {
 } from "../agents/agent-scope.js";
 import { ensureAuthProfileStore } from "../agents/auth-profiles.js";
 import { resolveAuthStorePath } from "../agents/auth-profiles/paths.js";
-import { writeConfigFile } from "../config/config.js";
+import { type OpenClawConfig, writeConfigFile } from "../config/config.js";
 import { logConfigUpdated } from "../config/logging.js";
 import { DEFAULT_AGENT_ID, normalizeAgentId } from "../routing/session-key.js";
 import type { RuntimeEnv } from "../runtime.js";
@@ -95,6 +95,64 @@ async function copyWorkspaceTemplateFiles(
     // No memory dir, skip
   }
   return copied;
+}
+
+/**
+ * Resolve a Matrix room alias (#name:server) to an internal room ID (!abc:server).
+ * Returns the alias unchanged if it's already an internal ID or if resolution fails.
+ */
+async function resolveMatrixRoomAlias(
+  alias: string,
+  cfg: OpenClawConfig,
+  accountId: string | undefined,
+  runtime: RuntimeEnv,
+): Promise<string> {
+  if (!alias.startsWith("#")) {
+    return alias; // Already an internal ID or not an alias
+  }
+
+  // Find the Matrix account config to get homeserver + access token
+  const matrixConfig = (cfg as Record<string, unknown>).channels as Record<string, unknown> | undefined;
+  const matrixChannel = matrixConfig?.matrix as Record<string, unknown> | undefined;
+  const accounts = matrixChannel?.accounts as Record<string, Record<string, unknown>> | undefined;
+
+  // Try the specified accountId first, then any available account
+  const accountKeys = accountId ? [accountId] : [];
+  if (accounts) {
+    for (const key of Object.keys(accounts)) {
+      if (!accountKeys.includes(key)) {
+        accountKeys.push(key);
+      }
+    }
+  }
+
+  for (const key of accountKeys) {
+    const account = accounts?.[key];
+    if (!account) continue;
+    const homeserver = (account.homeserver ?? account.homeserverUrl) as string | undefined;
+    const accessToken = account.accessToken as string | undefined;
+    if (!homeserver || !accessToken) continue;
+
+    const encodedAlias = encodeURIComponent(alias);
+    const url = `${homeserver}/_matrix/client/v3/directory/room/${encodedAlias}`;
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { room_id?: string };
+        if (data.room_id) {
+          runtime.log(`Resolved ${alias} → ${data.room_id}`);
+          return data.room_id;
+        }
+      }
+    } catch {
+      // Network error, try next account or fall through
+    }
+  }
+
+  runtime.error(`Could not resolve Matrix room alias "${alias}". Using as-is.`);
+  return alias;
 }
 
 /**
@@ -229,11 +287,20 @@ export async function agentsAddCommand(
       ...(model ? { model } : {}),
     });
 
+    // Resolve Matrix room alias (#name:server) to internal ID (!abc:server)
+    let roomId = opts.room?.trim();
+    if (roomId && roomId.startsWith("#")) {
+      // Extract accountId from first --bind spec if it has one (e.g. "matrix:coder" → "coder")
+      const firstBind = opts.bind?.[0];
+      const bindAccountId = firstBind?.includes(":") ? firstBind.split(":")[1] : undefined;
+      roomId = await resolveMatrixRoomAlias(roomId, nextConfig, bindAccountId, runtime);
+    }
+
     const bindingParse = parseBindingSpecs({
       agentId,
       specs: opts.bind,
       config: nextConfig,
-      roomId: opts.room?.trim(),
+      roomId,
     });
     if (bindingParse.errors.length > 0) {
       runtime.error(bindingParse.errors.join("\n"));
