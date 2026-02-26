@@ -98,25 +98,27 @@ async function copyWorkspaceTemplateFiles(
 }
 
 /**
- * Resolve a Matrix room alias (#name:server) to an internal room ID (!abc:server).
- * Returns the alias unchanged if it's already an internal ID or if resolution fails.
+ * Find the Matrix account config for a given accountId (or first available).
+ * Returns homeserver, accessToken, encryption flag, and invite targets.
  */
-async function resolveMatrixRoomAlias(
-  alias: string,
+function findMatrixAccount(
   cfg: OpenClawConfig,
   accountId: string | undefined,
-  runtime: RuntimeEnv,
-): Promise<string> {
-  if (!alias.startsWith("#")) {
-    return alias; // Already an internal ID or not an alias
-  }
-
-  // Find the Matrix account config to get homeserver + access token
-  const matrixConfig = (cfg as Record<string, unknown>).channels as Record<string, unknown> | undefined;
+): {
+  homeserver: string;
+  accessToken: string;
+  encryption: boolean;
+  inviteTargets: string[];
+  accountKey: string;
+} | null {
+  const matrixConfig = (cfg as Record<string, unknown>).channels as
+    | Record<string, unknown>
+    | undefined;
   const matrixChannel = matrixConfig?.matrix as Record<string, unknown> | undefined;
-  const accounts = matrixChannel?.accounts as Record<string, Record<string, unknown>> | undefined;
+  const accounts = matrixChannel?.accounts as
+    | Record<string, Record<string, unknown>>
+    | undefined;
 
-  // Try the specified accountId first, then any available account
   const accountKeys = accountId ? [accountId] : [];
   if (accounts) {
     for (const key of Object.keys(accounts)) {
@@ -133,26 +135,127 @@ async function resolveMatrixRoomAlias(
     const accessToken = account.accessToken as string | undefined;
     if (!homeserver || !accessToken) continue;
 
-    const encodedAlias = encodeURIComponent(alias);
-    const url = `${homeserver}/_matrix/client/v3/directory/room/${encodedAlias}`;
-    try {
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { room_id?: string };
-        if (data.room_id) {
-          runtime.log(`Resolved ${alias} → ${data.room_id}`);
-          return data.room_id;
+    const encryption = Boolean(account.encryption);
+    // Collect invite targets from autoJoinAllowlist and dm.allowFrom
+    const inviteTargets: string[] = [];
+    const autoJoinAllowlist = account.autoJoinAllowlist as string[] | undefined;
+    const dm = account.dm as Record<string, unknown> | undefined;
+    const dmAllowFrom = dm?.allowFrom as string[] | undefined;
+    for (const list of [autoJoinAllowlist, dmAllowFrom]) {
+      if (Array.isArray(list)) {
+        for (const entry of list) {
+          if (typeof entry === "string" && entry.startsWith("@") && !inviteTargets.includes(entry)) {
+            inviteTargets.push(entry);
+          }
         }
       }
-    } catch {
-      // Network error, try next account or fall through
     }
+
+    return { homeserver, accessToken, encryption, inviteTargets, accountKey: key };
+  }
+  return null;
+}
+
+/**
+ * Resolve a Matrix room alias (#name:server) to an internal room ID (!abc:server).
+ * If the alias doesn't exist, creates a new private room with that alias.
+ * If the account has encryption enabled, the room will be encrypted.
+ */
+async function resolveMatrixRoomAlias(
+  alias: string,
+  cfg: OpenClawConfig,
+  accountId: string | undefined,
+  runtime: RuntimeEnv,
+): Promise<string> {
+  if (!alias.startsWith("#")) {
+    return alias; // Already an internal ID or not an alias
   }
 
-  runtime.error(`Could not resolve Matrix room alias "${alias}". Using as-is.`);
-  return alias;
+  const account = findMatrixAccount(cfg, accountId);
+  if (!account) {
+    runtime.error(`No Matrix account found to resolve room alias "${alias}". Using as-is.`);
+    return alias;
+  }
+
+  const { homeserver, accessToken } = account;
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  // Try to resolve existing alias
+  const encodedAlias = encodeURIComponent(alias);
+  const resolveUrl = `${homeserver}/_matrix/client/v3/directory/room/${encodedAlias}`;
+  try {
+    const res = await fetch(resolveUrl, { headers });
+    if (res.ok) {
+      const data = (await res.json()) as { room_id?: string };
+      if (data.room_id) {
+        runtime.log(`Resolved ${alias} → ${data.room_id}`);
+        return data.room_id;
+      }
+    }
+  } catch {
+    // Resolution failed, we'll try to create
+  }
+
+  // Alias doesn't exist — create the room
+  runtime.log(`Room "${alias}" not found. Creating private room…`);
+
+  // Parse alias to extract local part and server for room_alias_name
+  // #agent-foo:waterwanders.com → room_alias_name: "agent-foo"
+  const aliasMatch = alias.match(/^#([^:]+):(.+)$/);
+  const roomAliasName = aliasMatch?.[1];
+  const roomName = roomAliasName ?? alias;
+
+  // Build initial_state for encryption if needed
+  const initialState: Array<Record<string, unknown>> = [];
+  if (account.encryption) {
+    initialState.push({
+      type: "m.room.encryption",
+      state_key: "",
+      content: { algorithm: "m.megolm.v1.aes-sha2" },
+    });
+  }
+
+  const createBody: Record<string, unknown> = {
+    visibility: "private",
+    preset: "private_chat",
+    name: roomName,
+    ...(roomAliasName ? { room_alias_name: roomAliasName } : {}),
+    invite: account.inviteTargets,
+    initial_state: initialState,
+  };
+
+  try {
+    const createRes = await fetch(`${homeserver}/_matrix/client/v3/createRoom`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(createBody),
+    });
+
+    if (!createRes.ok) {
+      const errText = await createRes.text();
+      runtime.error(`Failed to create room "${alias}": ${errText}`);
+      return alias;
+    }
+
+    const createData = (await createRes.json()) as { room_id?: string };
+    if (createData.room_id) {
+      const features = [
+        "private",
+        ...(account.encryption ? ["encrypted"] : []),
+        ...(account.inviteTargets.length > 0
+          ? [`invited: ${account.inviteTargets.join(", ")}`]
+          : []),
+      ];
+      runtime.log(`Created room ${alias} → ${createData.room_id} (${features.join(", ")})`);
+      return createData.room_id;
+    }
+
+    runtime.error(`Room creation for "${alias}" returned no room_id.`);
+    return alias;
+  } catch (err) {
+    runtime.error(`Error creating room "${alias}": ${err}`);
+    return alias;
+  }
 }
 
 /**
