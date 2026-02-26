@@ -175,6 +175,7 @@ ${theme.muted("Docs:")} ${formatDocsLink("/cli/agent", "docs.openclaw.ai/cli/age
     .option("--agent-dir <dir>", "Agent state directory for this agent")
     .option("--bind <channel[:accountId]>", "Route channel binding (repeatable)", collectOption, [])
     .option("--room <roomId>", "Room/channel ID for room-based routing (used with --bind)")
+    .option("--from <agentId>", "Fork workspace from existing agent (copies identity files, auth, git)")
     .option("--non-interactive", "Disable prompts; requires --workspace", false)
     .option("--json", "Output JSON summary", false)
     .action(async (name, opts, command) => {
@@ -185,6 +186,7 @@ ${theme.muted("Docs:")} ${formatDocsLink("/cli/agent", "docs.openclaw.ai/cli/age
           "agentDir",
           "bind",
           "room",
+          "from",
           "nonInteractive",
         ]);
         await agentsAddCommand(
@@ -195,6 +197,7 @@ ${theme.muted("Docs:")} ${formatDocsLink("/cli/agent", "docs.openclaw.ai/cli/age
             agentDir: opts.agentDir as string | undefined,
             bind: Array.isArray(opts.bind) ? (opts.bind as string[]) : undefined,
             room: opts.room as string | undefined,
+            from: opts.from as string | undefined,
             nonInteractive: Boolean(opts.nonInteractive),
             json: Boolean(opts.json),
           },

@@ -305,9 +305,9 @@ export function parseBindingSpecs(params: {
       continue;
     }
     const [channelRaw, accountRaw] = trimmed.split(":", 2);
-    const channel = normalizeChannelId(channelRaw);
+    const channel = normalizeChannelId(channelRaw) ?? channelRaw?.trim().toLowerCase();
     if (!channel) {
-      errors.push(`Unknown channel "${channelRaw}".`);
+      errors.push(`Empty channel in binding spec "${trimmed}".`);
       continue;
     }
     let accountId: string | undefined = accountRaw?.trim();

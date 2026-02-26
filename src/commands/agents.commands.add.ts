@@ -36,9 +36,125 @@ type AgentsAddOptions = {
   agentDir?: string;
   bind?: string[];
   room?: string;
+  from?: string;
   nonInteractive?: boolean;
   json?: boolean;
 };
+
+/** Workspace files to copy when using --from to fork an existing agent. */
+const WORKSPACE_TEMPLATE_FILES = [
+  "SOUL.md",
+  "USER.md",
+  "TOOLS.md",
+  "IDENTITY.md",
+  "MEMORY.md",
+  "HEARTBEAT.md",
+];
+
+/**
+ * Copy workspace template files from a source agent's workspace.
+ * Only copies files that exist in the source and don't yet exist in the target.
+ */
+async function copyWorkspaceTemplateFiles(
+  sourceWorkspace: string,
+  targetWorkspace: string,
+  runtime: RuntimeEnv,
+): Promise<string[]> {
+  const copied: string[] = [];
+  await fs.mkdir(targetWorkspace, { recursive: true });
+  for (const file of WORKSPACE_TEMPLATE_FILES) {
+    const src = path.join(sourceWorkspace, file);
+    const dest = path.join(targetWorkspace, file);
+    try {
+      await fs.access(src);
+      try {
+        await fs.access(dest);
+        // Target already exists, skip
+      } catch {
+        await fs.copyFile(src, dest);
+        copied.push(file);
+      }
+    } catch {
+      // Source file doesn't exist, skip
+    }
+  }
+  // Also copy memory/ directory if it exists
+  const srcMemory = path.join(sourceWorkspace, "memory");
+  const destMemory = path.join(targetWorkspace, "memory");
+  try {
+    const stat = await fs.stat(srcMemory);
+    if (stat.isDirectory()) {
+      try {
+        await fs.access(destMemory);
+      } catch {
+        await fs.cp(srcMemory, destMemory, { recursive: true });
+        copied.push("memory/");
+      }
+    }
+  } catch {
+    // No memory dir, skip
+  }
+  return copied;
+}
+
+/**
+ * Initialize a git repository in the workspace and push to the same remote
+ * as the source agent's workspace, on a branch named after the new agent.
+ */
+async function initWorkspaceGit(
+  workspaceDir: string,
+  sourceWorkspace: string,
+  agentId: string,
+  runtime: RuntimeEnv,
+): Promise<{ branch: string; remote: string } | null> {
+  const { execSync } = await import("node:child_process");
+  const run = (cmd: string, cwd: string) =>
+    execSync(cmd, { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+
+  // Check if source workspace has a git remote
+  let remoteUrl: string;
+  try {
+    remoteUrl = run("git remote get-url origin", sourceWorkspace);
+  } catch {
+    return null; // Source has no git remote
+  }
+
+  // Check if target already has git with a remote configured
+  let alreadyHasGit = false;
+  try {
+    run("git rev-parse --git-dir", workspaceDir);
+    alreadyHasGit = true;
+    // Check if it already has an origin remote
+    try {
+      run("git remote get-url origin", workspaceDir);
+      return null; // Already fully set up
+    } catch {
+      // Has git but no origin — we'll add the remote
+    }
+  } catch {
+    // Not a git repo yet
+  }
+
+  const branch = `agent-${agentId}`;
+  try {
+    if (!alreadyHasGit) {
+      run("git init", workspaceDir);
+    }
+    run(`git remote add origin ${remoteUrl}`, workspaceDir);
+    run(`git checkout -b ${branch}`, workspaceDir);
+    run("git add -A", workspaceDir);
+    run('git commit -m "Initial workspace for agent ' + agentId + '"', workspaceDir);
+    try {
+      run(`git push -u origin ${branch}`, workspaceDir);
+    } catch {
+      // Push may fail if no SSH key etc — non-fatal
+      runtime.log(`Note: git push failed for branch ${branch} — you can push manually later.`);
+    }
+    return { branch, remote: remoteUrl };
+  } catch {
+    return null;
+  }
+}
 
 async function fileExists(pathname: string): Promise<boolean> {
   try {
@@ -138,6 +254,44 @@ export async function agentsAddCommand(
       skipBootstrap: Boolean(bindingResult.config.agents?.defaults?.skipBootstrap),
       agentId,
     });
+
+    // --from: copy workspace template files from source agent
+    const fromAgent = opts.from?.trim();
+    let copiedFiles: string[] = [];
+    let gitResult: { branch: string; remote: string } | null = null;
+    if (fromAgent) {
+      const fromAgentId = normalizeAgentId(fromAgent);
+      const fromEntry = listAgentEntries(bindingResult.config).find(
+        (a) => normalizeAgentId(a.id) === fromAgentId,
+      );
+      if (!fromEntry) {
+        runtime.error(`Source agent "${fromAgent}" not found.`);
+      } else {
+        const sourceWorkspace = fromEntry.workspace
+          ? resolveUserPath(fromEntry.workspace)
+          : resolveAgentWorkspaceDir(bindingResult.config, fromAgentId);
+        copiedFiles = await copyWorkspaceTemplateFiles(sourceWorkspace, workspaceDir, runtime);
+        if (copiedFiles.length > 0 && !opts.json) {
+          runtime.log(`Copied from ${fromAgentId}: ${copiedFiles.join(", ")}`);
+        }
+        // Also copy auth profiles from source agent
+        const sourceAgentDir = resolveAgentDir(bindingResult.config, fromAgentId);
+        const sourceAuthPath = resolveAuthStorePath(sourceAgentDir);
+        const destAuthPath = resolveAuthStorePath(agentDir);
+        if (await fileExists(sourceAuthPath)) {
+          await fs.mkdir(path.dirname(destAuthPath), { recursive: true });
+          await fs.copyFile(sourceAuthPath, destAuthPath);
+          if (!opts.json) {
+            runtime.log(`Copied auth profiles from ${fromAgentId}.`);
+          }
+        }
+        // Initialize git with branch named after the agent
+        gitResult = await initWorkspaceGit(workspaceDir, sourceWorkspace, agentId, runtime);
+        if (gitResult && !opts.json) {
+          runtime.log(`Git initialized: branch ${gitResult.branch} → ${gitResult.remote}`);
+        }
+      }
+    }
 
     const payload = {
       agentId,
