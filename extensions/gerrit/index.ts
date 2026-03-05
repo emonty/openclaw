@@ -1,7 +1,9 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+import { resolveGerritAccount, defaultGerritAccountId } from "./src/accounts.js";
 import { gerritPlugin, gerritDock } from "./src/channel.js";
 import { setGerritRuntime } from "./src/runtime.js";
+import { GerritToolSchema, executeGerritTool, setGerritToolAccount } from "./src/tools.js";
 
 const plugin = {
   id: "gerrit",
@@ -11,6 +13,29 @@ const plugin = {
   register(api: OpenClawPluginApi) {
     setGerritRuntime(api.runtime);
     api.registerChannel({ plugin: gerritPlugin, dock: gerritDock });
+
+    // Set up the tool account from config
+    const accountId = defaultGerritAccountId(api.config);
+    const account = resolveGerritAccount(api.config, accountId);
+    if (account.enabled && account.host) {
+      setGerritToolAccount(account);
+    }
+
+    // Register agent tool
+    api.registerTool({
+      name: "gerrit",
+      label: "Gerrit Code Review",
+      description: [
+        "Interact with Gerrit code review. Actions:",
+        "- fetch_diff: Get the full diff for a change (specify change number, optionally patchset)",
+        "- fetch_file: Get file content at a revision (specify change, file path, optionally patchset)",
+        "- fetch_change: Get change details — status, labels, recent messages",
+        "- inline_comment: Post an inline comment on a specific file and line",
+        "- review: Post a top-level review comment on a change",
+      ].join("\n"),
+      parameters: GerritToolSchema,
+      execute: executeGerritTool,
+    } as AnyAgentTool);
   },
 };
 

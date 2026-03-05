@@ -3,6 +3,9 @@
   "version": "2026.2.26",
   "description": "OpenClaw Gerrit code review channel plugin",
   "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0"
+  },
   "devDependencies": {
     "openclaw": "workspace:*"
   },
