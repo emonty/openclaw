@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import type { CoreConfig, GerritStreamEvent, ResolvedGerritAccount } from "./types.js";
 import { formatGerritEvent, extractEventActor } from "./format.js";
 import { matchesProject } from "./project-match.js";
+import { postGerritReviewViaSpawn } from "./review.js";
 
 export type GerritMonitorOpts = {
   account: ResolvedGerritAccount;
@@ -148,6 +149,12 @@ function handleEvent(
 
   // Filter: is the actor in our allowlist?
   const actor = extractEventActor(event);
+
+  // Never respond to our own events (prevents feedback loops)
+  if (actor === account.username) {
+    return;
+  }
+
   const actorAllowed =
     account.allowFrom.length === 0 || (actor != null && account.allowFrom.includes(actor));
 
@@ -232,14 +239,38 @@ function handleEvent(
     ctx: ctxPayload,
   });
 
+  // Extract patchset number for review posting
+  const patchSetNum = (event as Record<string, unknown>).patchSet as
+    | { number?: number }
+    | undefined;
+  const currentPatchSet = patchSetNum?.number ?? 1;
+
   // Dispatch reply
   const { dispatcher, replyOptions, markDispatchIdle } =
     runtime.channel.reply.createReplyDispatcherWithTyping({
       deliver: async (_payload) => {
-        // Phase 1: log replies — no outbound to Gerrit yet
+        const text = String(_payload.text ?? "").trim();
+        if (!text || !changeNumber) {
+          logger.info(`[reply] Skipping empty reply or missing change number`);
+          return;
+        }
+
         logger.info(
-          `[reply] Would send to Gerrit ${project} change ${changeNumber}: ${String(_payload.text ?? "").slice(0, 100)}`,
+          `[reply] Posting to Gerrit ${project} change ${changeNumber},${currentPatchSet}: ${text.slice(0, 100)}…`,
         );
+
+        const result = await postGerritReviewViaSpawn({
+          account,
+          changeNumber,
+          patchSetNumber: currentPatchSet,
+          message: text,
+        });
+
+        if (result.success) {
+          logger.info(`[reply] Posted review to ${changeNumber},${currentPatchSet}`);
+        } else {
+          logger.warn(`[reply] Failed to post review: ${result.error}`);
+        }
       },
       onError: (err, info) => {
         logger.warn(`gerrit reply (${String(info.kind)}) failed: ${String(err)}`);
