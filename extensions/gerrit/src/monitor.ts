@@ -67,8 +67,12 @@ export async function monitorGerritStreamEvents(opts: GerritMonitorOpts): Promis
       logger.info(`Connecting to ${account.host}:${account.port} as ${account.username}…`);
       child = spawn("ssh", sshArgs, { stdio: ["ignore", "pipe", "pipe"] });
 
+      logger.info(
+        `SSH spawned PID=${child.pid} stdout=${Boolean(child.stdout)} stderr=${Boolean(child.stderr)}`,
+      );
+
       if (!child.stdout || !child.stderr) {
-        logger.warn("SSH process has no stdout/stderr");
+        logger.warn("SSH process has no stdout/stderr — stdio pipe failed");
         resolve();
         return;
       }
@@ -78,11 +82,16 @@ export async function monitorGerritStreamEvents(opts: GerritMonitorOpts): Promis
       rl.on("line", (line) => {
         try {
           const event = JSON.parse(line) as GerritStreamEvent;
+          const project = event.change?.project ?? event.project ?? "(no project)";
+          logger.info(`Event received: type=${event.type} project=${project}`);
           handleEvent(event, account, runtime, logger);
           // Reset backoff on successful event
           reconnectMs = INITIAL_RECONNECT_MS;
-        } catch {
-          // Non-JSON line (SSH banner, etc.) — ignore
+        } catch (err) {
+          // Non-JSON line (SSH banner, etc.) — log if it looks interesting
+          if (line.trim().length > 0) {
+            logger.info(`Non-JSON line: ${line.slice(0, 100)}`);
+          }
         }
       });
 

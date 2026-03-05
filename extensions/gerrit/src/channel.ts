@@ -15,7 +15,9 @@ export const gerritPlugin: ChannelPlugin<ResolvedGerritAccount> = {
     blurb: "Gerrit code review via SSH stream-events.",
     order: 90,
   },
-  capabilities: {},
+  capabilities: {
+    chatTypes: ["channel"],
+  },
   config: {
     listAccountIds: listGerritAccountIds,
     resolveAccount: resolveGerritAccount,
@@ -51,4 +53,8 @@ export const gerritPlugin: ChannelPlugin<ResolvedGerritAccount> = {
   },
 };
 
-export const gerritDock = { capabilities: {} };
+export const gerritDock = {
+  capabilities: {
+    chatTypes: ["channel"],
+  },
+};
