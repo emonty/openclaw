@@ -1,0 +1,9 @@
+{
+  "id": "gerrit",
+  "channels": ["gerrit"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
