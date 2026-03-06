@@ -1,9 +1,9 @@
 import type { AnyAgentTool, OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
-import { resolveGerritAccount, defaultGerritAccountId } from "./src/accounts.js";
+import { resolveGerritAccount, listGerritAccountIds } from "./src/accounts.js";
 import { gerritPlugin, gerritDock } from "./src/channel.js";
 import { setGerritRuntime } from "./src/runtime.js";
-import { GerritToolSchema, executeGerritTool, setGerritToolAccount } from "./src/tools.js";
+import { GerritToolSchema, executeGerritTool, registerGerritToolAccount } from "./src/tools.js";
 
 const plugin = {
   id: "gerrit",
@@ -14,11 +14,12 @@ const plugin = {
     setGerritRuntime(api.runtime);
     api.registerChannel({ plugin: gerritPlugin, dock: gerritDock });
 
-    // Set up the tool account from config
-    const accountId = defaultGerritAccountId(api.config);
-    const account = resolveGerritAccount(api.config, accountId);
-    if (account.enabled && account.host) {
-      setGerritToolAccount(account);
+    // Register all enabled Gerrit accounts for the tool
+    for (const accountId of listGerritAccountIds(api.config)) {
+      const account = resolveGerritAccount(api.config, accountId);
+      if (account.enabled && account.host) {
+        registerGerritToolAccount(account);
+      }
     }
 
     // Register agent tool
@@ -31,7 +32,7 @@ const plugin = {
         "- fetch_file: Get file content at a revision (specify change, file path, optionally patchset)",
         "- fetch_change: Get change details — status, labels, recent messages",
         "- inline_comment: Post an inline comment on a specific file and line",
-        "- review: Post a top-level review comment on a change",
+        "- review: Post a top-level review comment on a change, optionally with Code-Review +1/-1 vote",
       ].join("\n"),
       parameters: GerritToolSchema,
       execute: executeGerritTool,

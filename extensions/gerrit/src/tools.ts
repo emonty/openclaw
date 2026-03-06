@@ -91,6 +91,21 @@ export const GerritToolSchema = Type.Object(
     message: Type.Optional(
       Type.String({ description: "Comment text (for review or inline_comment)" }),
     ),
+    labels: Type.Optional(
+      Type.Object(
+        {
+          "Code-Review": Type.Optional(
+            Type.Number({
+              description: "Code-Review vote: +1 (looks good) or -1 (needs work). Never +2.",
+            }),
+          ),
+        },
+        {
+          description: "Vote labels to set (only Code-Review ±1 allowed)",
+          additionalProperties: false,
+        },
+      ),
+    ),
   },
   { additionalProperties: false },
 );
@@ -102,21 +117,32 @@ type ToolParams = {
   file?: string;
   line?: number;
   message?: string;
+  labels?: { "Code-Review"?: number };
 };
 
 // ---------- Tool implementation ----------
 
-let _account: ResolvedGerritAccount | null = null;
+const _accounts = new Map<string, ResolvedGerritAccount>();
+let _defaultAccountId: string | null = null;
 
+export function registerGerritToolAccount(account: ResolvedGerritAccount): void {
+  _accounts.set(account.accountId, account);
+  if (!_defaultAccountId) {
+    _defaultAccountId = account.accountId;
+  }
+}
+
+// Keep old API for compat
 export function setGerritToolAccount(account: ResolvedGerritAccount): void {
-  _account = account;
+  registerGerritToolAccount(account);
 }
 
 function getAccount(): ResolvedGerritAccount {
-  if (!_account) {
+  if (_accounts.size === 0) {
     throw new Error("Gerrit tool not configured — no account available");
   }
-  return _account;
+  // Return first/default account
+  return _accounts.get(_defaultAccountId!)!;
 }
 
 export async function executeGerritTool(
@@ -296,10 +322,15 @@ async function postReview(
     changeNumber: params.change,
     patchSetNumber: patchset,
     message: params.message,
+    labels: params.labels as Record<string, number> | undefined,
   });
 
   if (result.success) {
-    return text(`Review posted on change ${params.change},${patchset}`);
+    const voteStr =
+      params.labels?.["Code-Review"] != null
+        ? ` (Code-Review ${params.labels["Code-Review"] > 0 ? "+" : ""}${params.labels["Code-Review"]})`
+        : "";
+    return text(`Review posted on change ${params.change},${patchset}${voteStr}`);
   }
   return text(`Failed to post review: ${result.error}`);
 }

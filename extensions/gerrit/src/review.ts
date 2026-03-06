@@ -18,15 +18,15 @@ export type GerritReviewParams = {
  * Agents can never +2 or submit via this tool.
  */
 const MAX_VOTE: Record<string, number> = {
-  "Code-Review": 0, // comments only by default
-  Verified: 0,
-  Workflow: 0,
+  "Code-Review": 1, // agents can +1/-1 but never +2
+  Verified: 0, // only Zuul votes Verified
+  Workflow: 0, // only humans set Workflow
 };
 
 const MIN_VOTE: Record<string, number> = {
   "Code-Review": -1,
-  Verified: -1,
-  Workflow: -1,
+  Verified: 0,
+  Workflow: 0,
 };
 
 /**
