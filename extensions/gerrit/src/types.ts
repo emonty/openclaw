@@ -20,6 +20,9 @@ export type GerritAccountConfig = {
   allowFrom?: string[];
   /** Gerrit projects to watch. Supports glob patterns like "wandertracks/*". */
   projects?: string[];
+  /** Extra names that count as mentions for this account (in addition to username).
+   *  e.g. ["sword-nimi", "nightblood"] */
+  mentionNames?: string[];
 };
 
 export type ResolvedGerritAccount = {
@@ -31,6 +34,7 @@ export type ResolvedGerritAccount = {
   sshKeyPath: string;
   allowFrom: string[];
   projects: string[];
+  mentionNames: string[];
   enabled: boolean;
 };
 

@@ -1,7 +1,12 @@
 import type { PluginRuntime } from "openclaw/plugin-sdk";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
-import type { CoreConfig, GerritStreamEvent, ResolvedGerritAccount } from "./types.js";
+import type {
+  CoreConfig,
+  GerritStreamEvent,
+  GerritCommentAddedEvent,
+  ResolvedGerritAccount,
+} from "./types.js";
 import { formatGerritEvent, extractEventActor } from "./format.js";
 import { matchesProject } from "./project-match.js";
 import { postGerritReviewViaSpawn } from "./review.js";
@@ -143,7 +148,8 @@ function handleEvent(
   if (!project) return;
 
   // Filter: does this project match our watch list?
-  if (account.projects.length > 0 && !matchesProject(project, account.projects)) {
+  // Safety: if no projects configured, reject all events (never watch everything)
+  if (account.projects.length === 0 || !matchesProject(project, account.projects)) {
     return;
   }
 
@@ -158,6 +164,24 @@ function handleEvent(
   const actorAllowed =
     account.allowFrom.length === 0 || (actor != null && account.allowFrom.includes(actor));
 
+  // For comment-added: only dispatch if mentioned or negative vote
+  if (event.type === "comment-added") {
+    const commentEvent = event as GerritCommentAddedEvent;
+    const hasNegativeVote = commentEvent.approvals?.some((a) => Number(a.value) < 0) ?? false;
+
+    // Build mention names: username + configured extras
+    const mentionNames = [account.username, ...account.mentionNames].map((n) => n.toLowerCase());
+    const commentText = (commentEvent.comment ?? "").toLowerCase();
+    const isMentioned = mentionNames.some((name) => commentText.includes(name));
+
+    if (!hasNegativeVote && !isMentioned) {
+      logger.info(
+        `Gerrit comment on ${project} by ${actor ?? "unknown"} — no mention or negative vote, skipping`,
+      );
+      return;
+    }
+  }
+
   // Format the event
   const body = formatGerritEvent(event);
   if (!body) return;
@@ -168,6 +192,7 @@ function handleEvent(
   const route = runtime.channel.routing.resolveAgentRoute({
     cfg,
     channel: "gerrit",
+    accountId: account.accountId,
     peer: { kind: "channel", id: `gerrit:${account.accountId}:${project}` },
     roomId: `gerrit:${project}`,
   });

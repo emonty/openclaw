@@ -43,6 +43,7 @@ export function resolveGerritAccount(
     sshKeyPath: raw.sshKeyPath ?? path.join(os.homedir(), ".ssh", "id_ed25519"),
     allowFrom: raw.allowFrom ?? [],
     projects: raw.projects ?? [],
+    mentionNames: raw.mentionNames ?? [],
     enabled: raw.enabled !== false,
   };
 }
