@@ -270,32 +270,13 @@ function handleEvent(
     | undefined;
   const currentPatchSet = patchSetNum?.number ?? 1;
 
-  // Dispatch reply
+  // Deliver is a no-op — agents post to Gerrit via the gerrit tool
+  // (inline_comment, review). The deliver callback would just spam
+  // intermediate thinking as top-level comments.
   const { dispatcher, replyOptions, markDispatchIdle } =
     runtime.channel.reply.createReplyDispatcherWithTyping({
-      deliver: async (_payload) => {
-        const text = String(_payload.text ?? "").trim();
-        if (!text || !changeNumber) {
-          logger.info(`[reply] Skipping empty reply or missing change number`);
-          return;
-        }
-
-        logger.info(
-          `[reply] Posting to Gerrit ${project} change ${changeNumber},${currentPatchSet}: ${text.slice(0, 100)}…`,
-        );
-
-        const result = await postGerritReviewViaSpawn({
-          account,
-          changeNumber,
-          patchSetNumber: currentPatchSet,
-          message: text,
-        });
-
-        if (result.success) {
-          logger.info(`[reply] Posted review to ${changeNumber},${currentPatchSet}`);
-        } else {
-          logger.warn(`[reply] Failed to post review: ${result.error}`);
-        }
+      deliver: async () => {
+        // No-op: agent handles all Gerrit output via tool calls
       },
       onError: (err, info) => {
         logger.warn(`gerrit reply (${String(info.kind)}) failed: ${String(err)}`);
