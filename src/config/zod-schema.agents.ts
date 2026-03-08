@@ -28,6 +28,7 @@ const BindingMatchSchema = z
       })
       .strict()
       .optional(),
+    roomId: z.string().optional(),
     guildId: z.string().optional(),
     teamId: z.string().optional(),
     roles: z.array(z.string()).optional(),

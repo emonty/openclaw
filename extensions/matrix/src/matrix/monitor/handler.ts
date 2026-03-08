@@ -435,6 +435,7 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
           kind: isDirectMessage ? "direct" : "channel",
           id: isDirectMessage ? senderId : roomId,
         },
+        roomId,
       });
 
       const route = {

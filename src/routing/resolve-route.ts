@@ -30,6 +30,8 @@ export type ResolveAgentRouteInput = {
   peer?: RoutePeer | null;
   /** Parent peer for threads — used for binding inheritance when peer doesn't match directly. */
   parentPeer?: RoutePeer | null;
+  /** Room/channel ID — used for room-based routing independent of DM detection. */
+  roomId?: string | null;
   guildId?: string | null;
   teamId?: string | null;
   /** Discord member role IDs — used for role-based agent routing. */
@@ -50,6 +52,7 @@ export type ResolvedAgentRoute = {
   matchedBy:
     | "binding.peer"
     | "binding.peer.parent"
+    | "binding.roomId"
     | "binding.guild+roles"
     | "binding.guild"
     | "binding.team"
@@ -173,6 +176,7 @@ type NormalizedPeerConstraint =
 type NormalizedBindingMatch = {
   accountPattern: string;
   peer: NormalizedPeerConstraint;
+  roomId: string | null;
   guildId: string | null;
   teamId: string | null;
   roles: string[] | null;
@@ -393,6 +397,12 @@ function buildEvaluatedBindingsIndex(bindings: EvaluatedBinding[]): EvaluatedBin
       pushToIndexMap(byTeam, binding.match.teamId, binding);
       continue;
     }
+    // Skip room-constrained bindings from account/channel indexes.
+    // They are only matched via the binding.roomId tier, which scans
+    // all bindings directly, so they must not act as account fallbacks.
+    if (binding.match.roomId != null) {
+      continue;
+    }
     if (binding.match.accountPattern !== "*") {
       byAccount.push(binding);
       continue;
@@ -489,6 +499,7 @@ function normalizeBindingMatch(
     | {
         accountId?: string | undefined;
         peer?: { kind?: string; id?: string } | undefined;
+        roomId?: string | undefined;
         guildId?: string | undefined;
         teamId?: string | undefined;
         roles?: string[] | undefined;
@@ -499,6 +510,7 @@ function normalizeBindingMatch(
   return {
     accountPattern: (match?.accountId ?? "").trim(),
     peer: normalizePeerConstraint(match?.peer),
+    roomId: normalizeId(match?.roomId) || null,
     guildId: normalizeId(match?.guildId) || null,
     teamId: normalizeId(match?.teamId) || null,
     roles: Array.isArray(rawRoles) && rawRoles.length > 0 ? rawRoles : null,
@@ -740,6 +752,13 @@ export function resolveAgentRoute(input: ResolveAgentRouteInput): ResolvedAgentR
       scopePeer: parentPeer && parentPeer.id ? parentPeer : null,
       candidates: collectPeerIndexedBindings(bindingsIndex, parentPeer),
       predicate: (candidate) => candidate.match.peer.state === "valid",
+    },
+    {
+      matchedBy: "binding.roomId",
+      enabled: Boolean(input.roomId),
+      scopePeer: peer,
+      candidates: bindings.filter((b) => b.match.roomId != null),
+      predicate: (candidate) => candidate.match.roomId === input.roomId,
     },
     {
       matchedBy: "binding.guild+roles",
